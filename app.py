@@ -7,8 +7,8 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-API_KEY    = os.environ.get("ZERODHA_API_KEY", "")
-API_SECRET = os.environ.get("ZERODHA_SECRET", "")
+API_KEY    = os.environ.get("nig11uhzpwhkhwnu", "")
+API_SECRET = os.environ.get("2hl6h670qbjkomevu6kvamxew33brtu7", "")
 kite = KiteConnect(api_key=API_KEY)
 
 ACCESS_TOKEN = ""
