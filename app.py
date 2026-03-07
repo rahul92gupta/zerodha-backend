@@ -7,6 +7,8 @@ CORS(app)
 
 SYMBOLS = {
     "NIFTY":    "^NSEI",
+    "NIFTY50":  "^NSEI",
+    "NIFTY": "NIFTYBEES.NS"
     "SENSEX":   "^BSESN",
     "RELIANCE": "RELIANCE.NS",
     "TCS":      "TCS.NS",
