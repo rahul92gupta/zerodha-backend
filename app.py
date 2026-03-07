@@ -1,137 +1,78 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
-from kiteconnect import KiteConnect
-from datetime import date, timedelta
-import os
+import yfinance as yf
 
 app = Flask(__name__)
 CORS(app)
 
-API_KEY    = os.environ.get("nig11uhzpwhkhwnu", "")
-API_SECRET = os.environ.get("2hl6h670qbjkomevu6kvamxew33brtu7", "")
-kite = KiteConnect(api_key=API_KEY)
-
-ACCESS_TOKEN = ""
-
-TOKENS = {
-    "NIFTY":    256265,
-    "SENSEX":   265,
-    "RELIANCE": 738561,
-    "TCS":      2953217,
-    "INFY":     408065,
-    "HDFCBANK": 341249,
-    "WIPRO":    969473,
-    "ITC":      424961,
+SYMBOLS = {
+    "NIFTY":    "^NSEI",
+    "SENSEX":   "^BSESN",
+    "RELIANCE": "RELIANCE.NS",
+    "TCS":      "TCS.NS",
+    "INFY":     "INFY.NS",
+    "HDFCBANK": "HDFCBANK.NS",
+    "WIPRO":    "WIPRO.NS",
+    "ITC":      "ITC.NS",
+    "AIRTEL":   "BHARTIARTL.NS",
+    "BAJFIN":   "BAJFINANCE.NS",
+    "ICICI":    "ICICIBANK.NS",
+    "ADANI":    "ADANIENT.NS",
 }
 
 @app.route("/")
 def home():
-    return jsonify({"status": "running"})
-
-@app.route("/login")
-def login():
-    return jsonify({"url": kite.login_url()})
-
-@app.route("/callback")
-def callback():
-    global ACCESS_TOKEN
-    req_token = request.args.get("request_token")
-    session = kite.generate_session(req_token, API_SECRET)
-    ACCESS_TOKEN = session["access_token"]
-    kite.set_access_token(ACCESS_TOKEN)
-    return "<h2>Login Successful! Close this tab.</h2>"
+    return "Free yfinance Backend Running!"
 
 @app.route("/live")
 def live():
-    if not ACCESS_TOKEN:
-        return jsonify({"error": "Login first at /login"}), 401
-    kite.set_access_token(ACCESS_TOKEN)
-    data = kite.ltp([
-        "NSE:NIFTY 50", "BSE:SENSEX",
-        "NSE:RELIANCE", "NSE:TCS",
-        "NSE:INFY", "NSE:HDFCBANK",
-        "NSE:WIPRO", "NSE:ITC"
-    ])
     result = {}
-    for key, val in data.items():
-        result[key.split(":")[1]] = val["last_price"]
-    return jsonify(result)
+    for name, sym in SYMBOLS.items():
+        try:
+            ticker = yf.Ticker(sym)
+            price  = round(float(ticker.fast_info.last_price), 2)
+            result[name] = price
+        except Exception:
+            result[name] = 0
+    return __import__('flask').jsonify(result)
 
 @app.route("/historical/<sym>")
 def historical(sym):
-    if not ACCESS_TOKEN:
-        return jsonify({"error": "Login first"}), 401
-    kite.set_access_token(ACCESS_TOKEN)
-    token = TOKENS.get(sym.upper())
-    if not token:
-        return jsonify({"error": "Symbol not found"}), 404
-    hist = kite.historical_data(
-        instrument_token=token,
-        from_date=date.today() - timedelta(days=730),
-        to_date=date.today(),
-        interval="day"
-    )
-    prices = [{"date": str(d["date"])[:10], "close": d["close"]} for d in hist]
-    return jsonify({"symbol": sym.upper(), "data": prices})
+    symbol = SYMBOLS.get(sym.upper())
+    if not symbol:
+        return __import__('flask').jsonify({"error": "Symbol not found"}), 404
+    ticker = yf.Ticker(symbol)
+    hist   = ticker.history(period="2y", interval="1d")
+    prices = [{"date": str(idx)[:10], "close": round(float(row["Close"]), 2)}
+              for idx, row in hist.iterrows()]
+    return __import__('flask').jsonify({"symbol": sym.upper(), "count": len(prices), "data": prices})
+
+@app.route("/indicators/<sym>")
+def indicators(sym):
+    symbol = SYMBOLS.get(sym.upper())
+    if not symbol:
+        return __import__('flask').jsonify({"error": "Symbol not found"}), 404
+    ticker = yf.Ticker(symbol)
+    hist   = ticker.history(period="3mo")
+    closes = list(hist["Close"])
+    period = 14
+    gains  = [max(closes[i]-closes[i-1], 0) for i in range(1, len(closes))]
+    losses = [max(closes[i-1]-closes[i], 0) for i in range(1, len(closes))]
+    rs     = (sum(gains[-period:])/period) / max(sum(losses[-period:])/period, 0.001)
+    rsi    = round(100 - 100/(1+rs), 2)
+    def ema(p, n):
+        k=2/(n+1); e=[p[0]]
+        for x in p[1:]: e.append(x*k+e[-1]*(1-k))
+        return e
+    e12  = ema(closes, 12)
+    e26  = ema(closes, 26)
+    macd = round(e12[-1]-e26[-1], 2)
+    sig  = round(ema([e12[i]-e26[i] for i in range(len(closes))], 9)[-1], 2)
+    return __import__('flask').jsonify({
+        "symbol": sym.upper(), "close": round(closes[-1], 2),
+        "rsi": rsi, "rsi_signal": "OVERBOUGHT" if rsi>70 else "OVERSOLD" if rsi<30 else "NEUTRAL",
+        "macd": macd, "signal": sig, "macd_trend": "BULLISH" if macd>sig else "BEARISH"
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-```
-
----
-
-**File 2 — `requirements.txt`** (Add file → Create new file → name it `requirements.txt`)
-```
-flask
-flask-cors
-kiteconnect
-gunicorn
-```
-
----
-
-## STEP 2 — Deploy on Render.com
-
-1. Go to `render.com` → Sign up free with Google
-2. Click **"New +"** → **"Web Service"**
-3. Connect your **GitHub account**
-4. Select `zerodha-backend` repo
-5. Fill these fields:
-```
-Name:          zerodha-backend
-Runtime:       Python 3
-Build Command: pip install -r requirements.txt
-Start Command: gunicorn app:app
-```
-6. Scroll down → **Environment Variables** → Add:
-```
-Key:   ZERODHA_API_KEY
-Value: your_new_api_key
-
-Key:   ZERODHA_SECRET  
-Value: your_new_api_secret
-```
-7. Click **"Create Web Service"**
-8. Wait 3 minutes → You get URL like:
-```
-https://zerodha-backend.onrender.com
-```
-
----
-
-## STEP 3 — Set Callback URL in Zerodha
-
-1. Go to `kite.zerodha.com` → Console → Your App
-2. Change **Redirect URL** to:
-```
-https://zerodha-backend.onrender.com/callback
-```
-3. Save
-
----
-
-## STEP 4 — Login Once Daily
-
-Open this in browser:
-```
-https://zerodha-backend.onrender.com/login
